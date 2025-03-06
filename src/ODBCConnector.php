@@ -104,31 +104,42 @@ class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
             $this->logDebug('Configuring Snowflake key pair authentication', [
                 'privateKeyPath' => $config['private_key_path'],
                 'hasPassphrase' => isset($config['private_key_passphrase']),
+                'fileSize' => filesize($config['private_key_path']),
+                'filePermissions' => substr(sprintf('%o', fileperms($config['private_key_path'])), -4),
             ]);
+
+            // Setting empty password for key pair auth
+            $config['password'] = '';
             
-            // Make sure we're not sending password when using key pair auth
-            if (isset($config['password'])) {
-                $this->logDebug('Warning: Password and private key both present, setting password to empty string');
-                $config['password'] = '';
-            } else {
-                // Ensure password is an empty string even if not set
-                $config['password'] = '';
-            }
+            // Set authenticator parameter to match Snowflake docs exactly
+            // Note: Move this to the start of additional parameters for better compatibility
+            $config['authenticator'] = 'SNOWFLAKE_JWT';
             
-            // Add key pair auth parameters as DSN parameters instead of options
+            // Add key pair auth parameters as DSN parameters
             $config['priv_key_file'] = $config['private_key_path'];
             
             if (isset($config['private_key_passphrase'])) {
-                $config['priv_key_file_pwd'] = $config['private_key_passphrase'];
+                // Use the passphrase via PDO options instead of DSN to avoid escaping issues
+                $options[PDO::ATTR_STRINGIFY_FETCHES] = false;
+                $options['priv_key_file_pwd'] = $config['private_key_passphrase'];
+                
+                // Remove from config to keep it out of the DSN string
+                unset($config['priv_key_file_pwd']);
             }
-            
-            // Set authenticator parameter to match Snowflake docs exactly
-            $config['authenticator'] = 'SNOWFLAKE_JWT';
             
             $this->logDebug('Snowflake key pair parameters added to config', [
                 'privKeyFile' => $config['priv_key_file'],
-                'hasPassphrase' => isset($config['priv_key_file_pwd']),
+                'hasPassphraseOption' => isset($options['priv_key_file_pwd']),
                 'authenticator' => $config['authenticator'],
+                'allConfigKeys' => array_keys($config),
+            ]);
+            
+            // Read a bit of the private key file to check format
+            $keyFileContents = file_get_contents($config['private_key_path'], false, null, 0, 100);
+            $this->logDebug('Private key file prefix', [
+                'filePrefix' => substr($keyFileContents, 0, 30),
+                'isPEM' => strpos($keyFileContents, '-----BEGIN PRIVATE KEY-----') !== false,
+                'isRSA' => strpos($keyFileContents, '-----BEGIN RSA PRIVATE KEY-----') !== false,
             ]);
         } elseif ($this->dsnPrefix === 'snowflake') {
             $this->logDebug('Snowflake key pair authentication not configured correctly', [

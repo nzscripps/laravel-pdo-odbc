@@ -182,19 +182,42 @@ You have multiple ways to configure the ODBC connection:
 
 ### Troubleshooting Key Pair Authentication
 
-If you get an error like `SQLSTATE[08001] [240005] password parameter is missing` when using key pair authentication:
+If you get authentication errors when using key pair authentication, check these issues:
 
-1. Ensure your private key file exists and is readable by the web server
-2. Verify your key was generated in PEM format (p8 file)
-3. Make sure you've properly set the `authenticator` parameter to `SNOWFLAKE_JWT` exactly as shown (case sensitive)
-4. Try specifying the full absolute path to your private key rather than using the `resource_path()` helper
-5. Enable connection debugging as shown in the example above and check the logs
-6. Verify your PHP has the necessary extensions for JWT-based authentication
+1. **For "password parameter is missing" errors:**
+   - Ensure that `authenticator` is set to exactly `SNOWFLAKE_JWT` (case sensitive)
+   - Check that the password parameter is set to an empty string `''`
+
+2. **For "authenticator initialization failed" errors:**
+   - Check your private key file format - Snowflake expects a PEM format key (p8 file)
+   - Verify the key file has proper permissions and is readable by the web server
+   - Ensure your PHP has OpenSSL enabled and properly configured
+   - Try converting your key from .pem to .p8 format if needed
+   - Check for special characters in your key passphrase that might need escaping
+
+3. **General troubleshooting steps:**
+   - Verify your private key file exists and is readable by the web server
+   - Try using an absolute path to your private key
+   - Enable debug logging for detailed connection information:
+     ```php
+     'debug_connection' => true,
+     'log_path' => '/path/to/logs/snowflake.log',
+     ```
+   - Examine the log for specific error messages and key file details
+   - Try connecting with the standard Snowflake CLI or another tool to verify your credentials work
 
 The exact DSN format for Snowflake key pair authentication should be:
 ```
 account=<account_name>;authenticator=SNOWFLAKE_JWT;priv_key_file=<path>/rsa_key.p8;priv_key_file_pwd=<passphrase>
 ```
+
+If you're using the PHP extension directly (without Laravel), you can try this format:
+```php
+$dbh = new PDO("snowflake:account=<account name>;authenticator=SNOWFLAKE_JWT;priv_key_file=<path>/rsa_key.p8", 
+               "<username>", "");
+```
+
+Note that in the direct PHP version, the passphrase is often provided as a separate parameter rather than in the DSN.
 
 ## Eloquent ORM
 
