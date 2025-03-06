@@ -157,6 +157,8 @@ class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
                 'key_readable' => is_readable($cleanKeyPath),
                 'key_size' => file_exists($cleanKeyPath) ? filesize($cleanKeyPath) : 'file not found',
             ]);
+
+            $dsn .= ';disableocspchecks=true';
             
             // Empty string for password as per docs
             $password = '';
