@@ -36,6 +36,7 @@ class Connector extends ODBCConnector implements OdbcDriver
             }
         }
 
+        \Log::info('Connecting to Snowflake', $config);
         $connection = parent::connect($config);
 
         // custom Statement class to resolve Streaming value and parameters.
