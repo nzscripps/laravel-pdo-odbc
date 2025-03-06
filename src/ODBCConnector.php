@@ -22,14 +22,50 @@ class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
 {
     /**
      * Set dynamically the DSN prefix in case we need it.
+     *
+     * @var string
      */
-    protected string $dsnPrefix = 'odbc';
+    protected $dsnPrefix = 'odbc';
 
     /**
-     * Include the "Driver=" property in the DSN.
-     * In case of Snowflake connection via snowflake_pdo driver we dont want it.
+     * When set true, you're able to include a driver parameter in the DSN string, handy for Snowflake.
+     *
+     * @var bool
      */
-    protected bool $dsnIncludeDriver = true;
+    protected $dsnIncludeDriver = false;
+    
+    /**
+     * Flag to enable debug logging
+     *
+     * @var bool
+     */
+    protected $shouldLog = false;
+    
+    /**
+     * Path to the log file
+     *
+     * @var string
+     */
+    protected $logFilePath = '/tmp/snowflake_connection.log';
+
+    /**
+     * Log debug information to a file
+     * 
+     * @param string $message 
+     * @param array $context 
+     */
+    protected function logDebug(string $message, array $context = [])
+    {
+        if (!$this->shouldLog) {
+            return;
+        }
+        
+        $timestamp = date('Y-m-d H:i:s');
+        $contextJson = json_encode($context, JSON_PRETTY_PRINT);
+        $logMessage = "[$timestamp] $message" . ($contextJson ? "\nContext: $contextJson" : '') . "\n\n";
+        
+        file_put_contents($this->logFilePath, $logMessage, FILE_APPEND);
+    }
 
     /**
      * Establish a database connection.
@@ -42,20 +78,64 @@ class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
     {
         $options = $this->getOptions($config);
         
+        // Set debug flag
+        $this->shouldLog = $config['debug_connection'] ?? $config['debug'] ?? false;
+        
+        // Set custom log path if provided
+        if (isset($config['log_path'])) {
+            $this->logFilePath = $config['log_path'];
+        }
+        
+        $this->logDebug('ODBC Connection attempt started', [
+            'driver' => $config['driver'] ?? 'unknown',
+            'dsnPrefix' => $this->dsnPrefix,
+            'hasKeyPair' => isset($config['private_key_path']) && file_exists($config['private_key_path']),
+            'keyPairPath' => $config['private_key_path'] ?? 'not set',
+            'keyPairExists' => isset($config['private_key_path']) ? file_exists($config['private_key_path']) : false,
+            'hasKeyPassphrase' => isset($config['private_key_passphrase']),
+            'username' => $config['username'] ?? 'not set',
+        ]);
+        
         // Check for key pair authentication for Snowflake
         if ($this->dsnPrefix === 'snowflake' && 
             isset($config['private_key_path']) && 
             file_exists($config['private_key_path'])) {
             
-            // Add key pair auth parameters to the options
-            $options[SNOWFLAKE_ATTR_PRIV_KEY_FILE] = $config['private_key_path'];
+            $this->logDebug('Configuring Snowflake key pair authentication', [
+                'privateKeyPath' => $config['private_key_path'],
+                'hasPassphrase' => isset($config['private_key_passphrase']),
+            ]);
             
-            if (isset($config['private_key_passphrase'])) {
-                $options[SNOWFLAKE_ATTR_PRIV_KEY_FILE_PWD] = $config['private_key_passphrase'];
+            // Make sure we're not sending password when using key pair auth
+            if (isset($config['password'])) {
+                $this->logDebug('Warning: Password and private key both present, setting password to empty string');
+                $config['password'] = '';
+            } else {
+                // Ensure password is an empty string even if not set
+                $config['password'] = '';
             }
             
-            // Add authenticator parameter for key pair auth
-            $options[SNOWFLAKE_ATTR_AUTHENTICATOR] = 'SNOWFLAKE_JWT';
+            // Add key pair auth parameters as DSN parameters instead of options
+            $config['priv_key_file'] = $config['private_key_path'];
+            
+            if (isset($config['private_key_passphrase'])) {
+                $config['priv_key_file_pwd'] = $config['private_key_passphrase'];
+            }
+            
+            // Set authenticator parameter to match Snowflake docs exactly
+            $config['authenticator'] = 'SNOWFLAKE_JWT';
+            
+            $this->logDebug('Snowflake key pair parameters added to config', [
+                'privKeyFile' => $config['priv_key_file'],
+                'hasPassphrase' => isset($config['priv_key_file_pwd']),
+                'authenticator' => $config['authenticator'],
+            ]);
+        } elseif ($this->dsnPrefix === 'snowflake') {
+            $this->logDebug('Snowflake key pair authentication not configured correctly', [
+                'hasPrivateKeyPath' => isset($config['private_key_path']),
+                'privateKeyPath' => $config['private_key_path'] ?? 'not set',
+                'privateKeyExists' => isset($config['private_key_path']) ? file_exists($config['private_key_path']) : false,
+            ]);
         }
 
         // FULL DSN ONLY
@@ -65,9 +145,27 @@ class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
         // dynamicly build in some way..
         else {
             $dsn = $this->buildDsnDynamicly($config);
+            
+            $this->logDebug('Built DSN string dynamically', [
+                'dsn' => $dsn
+            ]);
         }
-
-        return $this->createConnection($dsn, $config, $options);
+        
+        try {
+            $connection = $this->createConnection($dsn, $config, $options);
+            
+            $this->logDebug('ODBC Connection successful');
+            
+            return $connection;
+        } catch (\PDOException $e) {
+            $this->logDebug('ODBC Connection failed', [
+                'error' => $e->getMessage(),
+                'code' => $e->getCode(),
+                'dsn' => $dsn,
+                'options' => json_encode($options),
+            ]);
+            throw $e;
+        }
     }
 
     /**

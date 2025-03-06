@@ -164,12 +164,37 @@ You have multiple ways to configure the ODBC connection:
        'private_key_passphrase' => env('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', null),
        'warehouse' => 'warehouse name',
        'schema' => 'PUBLIC',
+       // Optional: Explicitly set authenticator according to Snowflake docs
+       'authenticator' => 'SNOWFLAKE_JWT',
+       // Optional debug configuration
+       'debug_connection' => true,
+       'log_path' => storage_path('logs/snowflake_connection.log'),
    ]
    ```
 
    > Instead of using a password, this configuration uses a private key file for authentication.
-   > The `private_key_path` should point to a PEM-formatted private key file, and 
+   > The `private_key_path` should point to a PEM-formatted private key file (p8 file), and 
    > `private_key_passphrase` is optional if your key is protected with a passphrase.
+   > According to Snowflake documentation, when using key pair authentication:
+   > - The authenticator must be set to `SNOWFLAKE_JWT`
+   > - The password is set to an empty string (this is handled automatically by the connector)
+   > - The private key file should be accessible to the web server user
+
+### Troubleshooting Key Pair Authentication
+
+If you get an error like `SQLSTATE[08001] [240005] password parameter is missing` when using key pair authentication:
+
+1. Ensure your private key file exists and is readable by the web server
+2. Verify your key was generated in PEM format (p8 file)
+3. Make sure you've properly set the `authenticator` parameter to `SNOWFLAKE_JWT` exactly as shown (case sensitive)
+4. Try specifying the full absolute path to your private key rather than using the `resource_path()` helper
+5. Enable connection debugging as shown in the example above and check the logs
+6. Verify your PHP has the necessary extensions for JWT-based authentication
+
+The exact DSN format for Snowflake key pair authentication should be:
+```
+account=<account_name>;authenticator=SNOWFLAKE_JWT;priv_key_file=<path>/rsa_key.p8;priv_key_file_pwd=<passphrase>
+```
 
 ## Eloquent ORM
 
