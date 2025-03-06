@@ -121,10 +121,7 @@ class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
             if (isset($config['private_key_passphrase'])) {
                 // Use the passphrase via PDO options instead of DSN to avoid escaping issues
                 $options[PDO::ATTR_STRINGIFY_FETCHES] = false;
-                $options['priv_key_file_pwd'] = $config['private_key_passphrase'];
-                
-                // Remove from config to keep it out of the DSN string
-                unset($config['priv_key_file_pwd']);
+                $options['priv_key_file_pwd'] = urlencode($config['private_key_passphrase']);
             }
             
             $this->logDebug('Snowflake key pair parameters added to config', [
