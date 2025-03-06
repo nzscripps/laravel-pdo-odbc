@@ -226,6 +226,13 @@ If you get authentication errors when using key pair authentication, check these
    - Check file permissions (should be 0600 or 0400 for security)
    - Use absolute paths to avoid path resolution issues
 
+5. **Path Escaping Issues:**
+   - If your connection fails with path escaping issues (paths show as `/var\/www\/...`), try these solutions:
+     - Use directory separators appropriate for your OS (Windows: `\\`, Unix: `/`)
+     - Avoid using Laravel helpers like `resource_path()` - use a full absolute path instead
+     - Double-check the path in your logs to ensure it doesn't contain escape characters
+     - If storing the path in JSON config, ensure it's not being double-escaped
+
 Remember to check the logs for detailed information about the connection attempt.
 
 ## Eloquent ORM

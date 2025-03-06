@@ -117,12 +117,22 @@ class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
             // Add authenticator - must be exactly SNOWFLAKE_JWT
             $dsn .= ';authenticator=SNOWFLAKE_JWT';
             
+            // Process the private key path to ensure no escaping issues
+            $cleanKeyPath = $config['private_key_path'];
+            // Remove any JSON escaping that might be present
+            $cleanKeyPath = str_replace('\\/', '/', $cleanKeyPath);
+            // Ensure proper directory separators on the platform
+            $cleanKeyPath = str_replace('\\', DIRECTORY_SEPARATOR, $cleanKeyPath);
+            $cleanKeyPath = str_replace('/', DIRECTORY_SEPARATOR, $cleanKeyPath);
+            
             // Add private key file path
-            $dsn .= ';priv_key_file=' . $config['private_key_path'];
+            $dsn .= ';priv_key_file=' . $cleanKeyPath;
             
             // Add passphrase if present
             if (isset($config['private_key_passphrase'])) {
-                $dsn .= ';priv_key_file_pwd=' . $config['private_key_passphrase'];
+                // Clean passphrase of any JSON escaping
+                $cleanPassphrase = str_replace('\\/', '/', $config['private_key_passphrase']);
+                $dsn .= ';priv_key_file_pwd=' . $cleanPassphrase;
             }
             
             // Add other parameters that might be needed
@@ -140,21 +150,55 @@ class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
             
             $this->logDebug('Constructed Snowflake key pair DSN', [
                 'dsn' => $dsn,
+                'dsn_with_prefix' => $this->dsnPrefix . ':' . $dsn,
                 'username' => $config['username'] ?? 'not set',
+                'path_original' => $config['private_key_path'],
+                'path_processed' => $cleanKeyPath,
+                'key_readable' => is_readable($cleanKeyPath),
+                'key_size' => file_exists($cleanKeyPath) ? filesize($cleanKeyPath) : 'file not found',
             ]);
             
             // Empty string for password as per docs
-            $config['password'] = '';
+            $password = '';
             
-            // Override the default DSN construction
-            $config['dsn'] = $dsn;
-            
-            // Don't add these to the DSN again
-            unset($config['priv_key_file']);
-            unset($config['priv_key_file_pwd']);
-            unset($config['authenticator']);
-            
-            return $this->createConnection($this->dsnPrefix . ':' . $dsn, $config, $options);
+            try {
+                // Try direct PDO creation to bypass any potential framework issues
+                $pdoDsn = $this->dsnPrefix . ':' . $dsn;
+                $this->logDebug('Attempting direct PDO connection', [
+                    'full_dsn' => $pdoDsn,
+                ]);
+                
+                // Try raw PDO connection first as a test
+                try {
+                    $rawPdo = new \PDO($pdoDsn, $config['username'], $password);
+                    $this->logDebug('Direct PDO connection successful!');
+                    return $rawPdo;
+                } catch (\PDOException $e) {
+                    $this->logDebug('Direct PDO connection failed', [
+                        'error' => $e->getMessage(),
+                        'code' => $e->getCode()
+                    ]);
+                    // Fall through to the normal connection method
+                }
+                
+                // Override the default DSN construction
+                $config['dsn'] = $dsn;
+                $config['password'] = $password;
+                
+                // Don't add these to the DSN again
+                unset($config['priv_key_file']);
+                unset($config['priv_key_file_pwd']);
+                unset($config['authenticator']);
+                
+                return $this->createConnection($this->dsnPrefix . ':' . $dsn, $config, $options);
+            } catch (\Exception $e) {
+                $this->logDebug('Exception during connection attempt', [
+                    'error' => $e->getMessage(),
+                    'code' => $e->getCode(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+                throw $e;
+            }
         } elseif ($this->dsnPrefix === 'snowflake') {
             $this->logDebug('Snowflake key pair authentication not configured correctly', [
                 'hasPrivateKeyPath' => isset($config['private_key_path']),
