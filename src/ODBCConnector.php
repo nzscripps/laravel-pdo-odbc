@@ -14,8 +14,8 @@ use PDO;
 /**
  * Snowflake PDO constants
  */
-const SNOWFLAKE_ATTR_PRIV_KEY_FILE = 'private_key_file';
-const SNOWFLAKE_ATTR_PRIV_KEY_FILE_PWD = 'private_key_file_pwd';
+const SNOWFLAKE_ATTR_PRIV_KEY_FILE = 'priv_key_file';
+const SNOWFLAKE_ATTR_PRIV_KEY_FILE_PWD = 'priv_key_file_pwd';
 const SNOWFLAKE_ATTR_AUTHENTICATOR = 'authenticator';
 
 class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
@@ -55,7 +55,7 @@ class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
             }
             
             // Add authenticator parameter for key pair auth
-            $options[SNOWFLAKE_ATTR_AUTHENTICATOR] = 'snowflake';
+            $options[SNOWFLAKE_ATTR_AUTHENTICATOR] = 'SNOWFLAKE_JWT';
         }
 
         // FULL DSN ONLY
