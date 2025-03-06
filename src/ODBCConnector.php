@@ -11,6 +11,13 @@ use Illuminate\Support\Str;
 use LaravelPdoOdbc\Contracts\OdbcDriver;
 use PDO;
 
+/**
+ * Snowflake PDO constants
+ */
+const SNOWFLAKE_ATTR_PRIV_KEY_FILE = 'private_key_file';
+const SNOWFLAKE_ATTR_PRIV_KEY_FILE_PWD = 'private_key_file_pwd';
+const SNOWFLAKE_ATTR_AUTHENTICATOR = 'authenticator';
+
 class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
 {
     /**
@@ -34,6 +41,22 @@ class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
     public function connect(array $config)
     {
         $options = $this->getOptions($config);
+        
+        // Check for key pair authentication for Snowflake
+        if ($this->dsnPrefix === 'snowflake' && 
+            isset($config['private_key_path']) && 
+            file_exists($config['private_key_path'])) {
+            
+            // Add key pair auth parameters to the options
+            $options[SNOWFLAKE_ATTR_PRIV_KEY_FILE] = $config['private_key_path'];
+            
+            if (isset($config['private_key_passphrase'])) {
+                $options[SNOWFLAKE_ATTR_PRIV_KEY_FILE_PWD] = $config['private_key_passphrase'];
+            }
+            
+            // Add authenticator parameter for key pair auth
+            $options[SNOWFLAKE_ATTR_AUTHENTICATOR] = 'snowflake';
+        }
 
         // FULL DSN ONLY
         if ($dsn = Arr::get($config, 'dsn')) {
@@ -70,7 +93,7 @@ class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
     {
         // ignore some default props...
         $ignoreProps = $this->dsnPrefix === 'snowflake' ?
-            ['driver', 'odbc_driver', 'dsn', 'options', 'port', 'server', 'username', 'password', 'name', 'prefix'] :
+            ['driver', 'odbc_driver', 'dsn', 'options', 'port', 'server', 'username', 'password', 'name', 'prefix', 'private_key_path', 'private_key_passphrase'] :
             ['driver', 'odbc_driver', 'dsn', 'options', 'username', 'password', 'name', 'prefix'];
         $props = Arr::except($config, $ignoreProps);
 

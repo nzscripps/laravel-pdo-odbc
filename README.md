@@ -84,6 +84,22 @@ instead of ODBC, but we'll keep supporting it.
         \PDO::ODBC_ATTR_USE_CURSOR_LIBRARY => \PDO::ODBC_SQL_USE_DRIVER
     ]
 ],
+
+// Using key pair authentication with Snowflake
+'snowflake_keypair' => [
+    'driver' => 'snowflake_native',
+    'account' => '{account_name}.eu-west-1',
+    'username' => env('SNOWFLAKE_USER'),
+    'private_key_path' => resource_path('private_key.pem'),
+    'private_key_passphrase' => env('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', null),
+    'database' => '{database}',
+    'warehouse' => '{warehouse}',
+    'schema' => 'PUBLIC', // change it if necessary.
+    'options' => [
+        // Required for Snowflake usage
+        \PDO::ODBC_ATTR_USE_CURSOR_LIBRARY => \PDO::ODBC_SQL_USE_DRIVER
+    ]
+],
 ```
 
 You have multiple ways to configure the ODBC connection:
@@ -135,6 +151,25 @@ You have multiple ways to configure the ODBC connection:
    > Note: The DSN `odbc_driver` parameter can either be an absolute path to
    > your driver file or the name registered within the `odbcinst.ini`
    > file/ODBC manager.
+
+3. Using key pair authentication with Snowflake:
+
+   ```php
+   'snowflake_keypair' => [
+       'driver' => 'snowflake',
+       'odbc_driver' => '/opt/snowflake/snowflakeodbc/lib/universal/libSnowflake.dylib',
+       'server' => 'host.example.com',
+       'username' => env('SNOWFLAKE_USER'),
+       'private_key_path' => resource_path('private_key.pem'),
+       'private_key_passphrase' => env('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', null),
+       'warehouse' => 'warehouse name',
+       'schema' => 'PUBLIC',
+   ]
+   ```
+
+   > Instead of using a password, this configuration uses a private key file for authentication.
+   > The `private_key_path` should point to a PEM-formatted private key file, and 
+   > `private_key_passphrase` is optional if your key is protected with a passphrase.
 
 ## Eloquent ORM
 
