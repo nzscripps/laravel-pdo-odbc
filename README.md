@@ -184,40 +184,49 @@ You have multiple ways to configure the ODBC connection:
 
 If you get authentication errors when using key pair authentication, check these issues:
 
-1. **For "password parameter is missing" errors:**
-   - Ensure that `authenticator` is set to exactly `SNOWFLAKE_JWT` (case sensitive)
-   - Check that the password parameter is set to an empty string `''`
+1. **For "password parameter is missing" or "authenticator initialization failed" errors:**
+   - Make sure your configuration exactly matches Snowflake's expected format:
+   
+   ```php
+   'snowflake_keypair' => [
+       'driver' => 'snowflake_native',
+       'account' => '{account_name}.region', // Account identifier
+       'username' => env('SNOWFLAKE_USER'),
+       'private_key_path' => '/absolute/path/to/rsa_key.p8', // Must be absolute path
+       'private_key_passphrase' => env('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', null),
+       'database' => '{database}',
+       'warehouse' => '{warehouse}',
+       'schema' => '{schema}',
+       // Debug settings
+       'debug_connection' => true,
+       'log_path' => '/path/to/logs/snowflake.log',
+   ]
+   ```
 
-2. **For "authenticator initialization failed" errors:**
-   - Check your private key file format - Snowflake expects a PEM format key (p8 file)
-   - Verify the key file has proper permissions and is readable by the web server
-   - Ensure your PHP has OpenSSL enabled and properly configured
-   - Try converting your key from .pem to .p8 format if needed
-   - Check for special characters in your key passphrase that might need escaping
-
-3. **General troubleshooting steps:**
-   - Verify your private key file exists and is readable by the web server
-   - Try using an absolute path to your private key
-   - Enable debug logging for detailed connection information:
-     ```php
-     'debug_connection' => true,
-     'log_path' => '/path/to/logs/snowflake.log',
+2. **Key file format requirements:**
+   - Snowflake expects a PKCS#8 format private key (p8 file)
+   - The file must start with `-----BEGIN PRIVATE KEY-----` (for unencrypted) or `-----BEGIN ENCRYPTED PRIVATE KEY-----` (for encrypted)
+   - If your key is in traditional PEM format beginning with `-----BEGIN RSA PRIVATE KEY-----`, convert it:
+     ```bash
+     openssl pkcs8 -topk8 -inform PEM -outform PEM -in private_key.pem -out private_key.p8
      ```
-   - Examine the log for specific error messages and key file details
-   - Try connecting with the standard Snowflake CLI or another tool to verify your credentials work
+     (Omit the `-nocrypt` option if you want to encrypt it with a passphrase)
 
-The exact DSN format for Snowflake key pair authentication should be:
-```
-account=<account_name>;authenticator=SNOWFLAKE_JWT;priv_key_file=<path>/rsa_key.p8;priv_key_file_pwd=<passphrase>
-```
+3. **Connection string format:**
+   - The exact DSN format Snowflake requires is:
+     ```
+     account=<account_name>;authenticator=SNOWFLAKE_JWT;priv_key_file=<path>/rsa_key.p8;priv_key_file_pwd=<passphrase>
+     ```
+   - Additional parameters like database, warehouse, schema can be appended
+   - The username is provided as the second parameter to the PDO constructor
+   - The password parameter (third parameter to PDO) must be an empty string `""`
 
-If you're using the PHP extension directly (without Laravel), you can try this format:
-```php
-$dbh = new PDO("snowflake:account=<account name>;authenticator=SNOWFLAKE_JWT;priv_key_file=<path>/rsa_key.p8", 
-               "<username>", "");
-```
+4. **File access and permissions:**
+   - Ensure the web server has read access to the private key file
+   - Check file permissions (should be 0600 or 0400 for security)
+   - Use absolute paths to avoid path resolution issues
 
-Note that in the direct PHP version, the passphrase is often provided as a separate parameter rather than in the DSN.
+Remember to check the logs for detailed information about the connection attempt.
 
 ## Eloquent ORM
 
