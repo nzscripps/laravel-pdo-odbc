@@ -11,61 +11,18 @@ use Illuminate\Support\Str;
 use LaravelPdoOdbc\Contracts\OdbcDriver;
 use PDO;
 
-/**
- * Snowflake PDO constants
- */
-const SNOWFLAKE_ATTR_PRIV_KEY_FILE = 'priv_key_file';
-const SNOWFLAKE_ATTR_PRIV_KEY_FILE_PWD = 'priv_key_file_pwd';
-const SNOWFLAKE_ATTR_AUTHENTICATOR = 'authenticator';
-
 class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
 {
     /**
      * Set dynamically the DSN prefix in case we need it.
-     *
-     * @var string
      */
-    protected $dsnPrefix = 'odbc';
+    protected string $dsnPrefix = 'odbc';
 
     /**
-     * When set true, you're able to include a driver parameter in the DSN string, handy for Snowflake.
-     *
-     * @var bool
+     * Include the "Driver=" property in the DSN.
+     * In case of Snowflake connection via snowflake_pdo driver we dont want it.
      */
-    protected $dsnIncludeDriver = false;
-    
-    /**
-     * Flag to enable debug logging
-     *
-     * @var bool
-     */
-    protected $shouldLog = false;
-    
-    /**
-     * Path to the log file
-     *
-     * @var string
-     */
-    protected $logFilePath = '/tmp/snowflake_connection.log';
-
-    /**
-     * Log debug information to a file
-     * 
-     * @param string $message 
-     * @param array $context 
-     */
-    protected function logDebug(string $message, array $context = [])
-    {
-        if (!$this->shouldLog) {
-            return;
-        }
-        
-        $timestamp = date('Y-m-d H:i:s');
-        $contextJson = json_encode($context, JSON_PRETTY_PRINT);
-        $logMessage = "[$timestamp] $message" . ($contextJson ? "\nContext: $contextJson" : '') . "\n\n";
-        
-        file_put_contents($this->logFilePath, $logMessage, FILE_APPEND);
-    }
+    protected bool $dsnIncludeDriver = true;
 
     /**
      * Establish a database connection.
@@ -77,137 +34,6 @@ class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
     public function connect(array $config)
     {
         $options = $this->getOptions($config);
-        
-        // Set debug flag
-        $this->shouldLog = $config['debug_connection'] ?? $config['debug'] ?? false;
-        
-        // Set custom log path if provided
-        if (isset($config['log_path'])) {
-            $this->logFilePath = $config['log_path'];
-        }
-        
-        $this->logDebug('ODBC Connection attempt started', [
-            'driver' => $config['driver'] ?? 'unknown',
-            'dsnPrefix' => $this->dsnPrefix,
-            'hasKeyPair' => isset($config['private_key_path']) && file_exists($config['private_key_path']),
-            'keyPairPath' => $config['private_key_path'] ?? 'not set',
-            'keyPairExists' => isset($config['private_key_path']) ? file_exists($config['private_key_path']) : false,
-            'hasKeyPassphrase' => isset($config['private_key_passphrase']),
-            'username' => $config['username'] ?? 'not set',
-        ]);
-        
-        // Check for key pair authentication for Snowflake
-        if ($this->dsnPrefix === 'snowflake' && 
-            isset($config['private_key_path']) && 
-            file_exists($config['private_key_path'])) {
-            
-            $this->logDebug('Configuring Snowflake key pair authentication', [
-                'privateKeyPath' => $config['private_key_path'],
-                'hasPassphrase' => isset($config['private_key_passphrase']),
-                'fileSize' => filesize($config['private_key_path']),
-                'filePermissions' => substr(sprintf('%o', fileperms($config['private_key_path'])), -4),
-            ]);
-
-            // Important: construct the DSN exactly according to Snowflake docs
-            // DSN should be: account=<account name>;authenticator=SNOWFLAKE_JWT;priv_key_file=<path>;priv_key_file_pwd=<passphrase>
-            
-            // Start with the account
-            $dsn = 'account=' . ($config['account'] ?? 'unknownaccount');
-            
-            // Add authenticator - must be exactly SNOWFLAKE_JWT
-            $dsn .= ';authenticator=SNOWFLAKE_JWT';
-            
-            // Process the private key path to ensure no escaping issues
-            $cleanKeyPath = $config['private_key_path'];
-            // Remove any JSON escaping that might be present
-            $cleanKeyPath = str_replace('\\/', '/', $cleanKeyPath);
-            // Ensure proper directory separators on the platform
-            $cleanKeyPath = str_replace('\\', DIRECTORY_SEPARATOR, $cleanKeyPath);
-            $cleanKeyPath = str_replace('/', DIRECTORY_SEPARATOR, $cleanKeyPath);
-            
-            // Add private key file path
-            $dsn .= ';priv_key_file=' . $cleanKeyPath;
-            
-            // Add passphrase if present
-            if (isset($config['private_key_passphrase'])) {
-                // Clean passphrase of any JSON escaping
-                $cleanPassphrase = str_replace('\\/', '/', $config['private_key_passphrase']);
-                $dsn .= ';priv_key_file_pwd=' . $cleanPassphrase;
-            }
-            
-            // Add other parameters that might be needed
-            if (isset($config['database'])) {
-                $dsn .= ';database=' . $config['database'];
-            }
-            
-            if (isset($config['warehouse'])) {
-                $dsn .= ';warehouse=' . $config['warehouse'];
-            }
-            
-            if (isset($config['schema'])) {
-                $dsn .= ';schema=' . $config['schema'];
-            }
-            
-            $this->logDebug('Constructed Snowflake key pair DSN', [
-                'dsn' => $dsn,
-                'dsn_with_prefix' => $this->dsnPrefix . ':' . $dsn,
-                'username' => $config['username'] ?? 'not set',
-                'path_original' => $config['private_key_path'],
-                'path_processed' => $cleanKeyPath,
-                'key_readable' => is_readable($cleanKeyPath),
-                'key_size' => file_exists($cleanKeyPath) ? filesize($cleanKeyPath) : 'file not found',
-            ]);
-
-            $dsn .= ';disableocspchecks=true';
-            
-            // Empty string for password as per docs
-            $password = '';
-            
-            try {
-                // Try direct PDO creation to bypass any potential framework issues
-                $pdoDsn = $this->dsnPrefix . ':' . $dsn;
-                $this->logDebug('Attempting direct PDO connection', [
-                    'full_dsn' => $pdoDsn,
-                ]);
-                
-                // Try raw PDO connection first as a test
-                try {
-                    $rawPdo = new \PDO($pdoDsn, $config['username'], $password);
-                    $this->logDebug('Direct PDO connection successful!');
-                    return $rawPdo;
-                } catch (\PDOException $e) {
-                    $this->logDebug('Direct PDO connection failed', [
-                        'error' => $e->getMessage(),
-                        'code' => $e->getCode()
-                    ]);
-                    // Fall through to the normal connection method
-                }
-                
-                // Override the default DSN construction
-                $config['dsn'] = $dsn;
-                $config['password'] = $password;
-                
-                // Don't add these to the DSN again
-                unset($config['priv_key_file']);
-                unset($config['priv_key_file_pwd']);
-                unset($config['authenticator']);
-                
-                return $this->createConnection($this->dsnPrefix . ':' . $dsn, $config, $options);
-            } catch (\Exception $e) {
-                $this->logDebug('Exception during connection attempt', [
-                    'error' => $e->getMessage(),
-                    'code' => $e->getCode(),
-                    'trace' => $e->getTraceAsString()
-                ]);
-                throw $e;
-            }
-        } elseif ($this->dsnPrefix === 'snowflake') {
-            $this->logDebug('Snowflake key pair authentication not configured correctly', [
-                'hasPrivateKeyPath' => isset($config['private_key_path']),
-                'privateKeyPath' => $config['private_key_path'] ?? 'not set',
-                'privateKeyExists' => isset($config['private_key_path']) ? file_exists($config['private_key_path']) : false,
-            ]);
-        }
 
         // FULL DSN ONLY
         if ($dsn = Arr::get($config, 'dsn')) {
@@ -216,27 +42,9 @@ class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
         // dynamicly build in some way..
         else {
             $dsn = $this->buildDsnDynamicly($config);
-            
-            $this->logDebug('Built DSN string dynamically', [
-                'dsn' => $dsn
-            ]);
         }
-        
-        try {
-            $connection = $this->createConnection($dsn, $config, $options);
-            
-            $this->logDebug('ODBC Connection successful');
-            
-            return $connection;
-        } catch (\PDOException $e) {
-            $this->logDebug('ODBC Connection failed', [
-                'error' => $e->getMessage(),
-                'code' => $e->getCode(),
-                'dsn' => $dsn,
-                'options' => json_encode($options),
-            ]);
-            throw $e;
-        }
+
+        return $this->createConnection($dsn, $config, $options);
     }
 
     /**
@@ -262,7 +70,7 @@ class ODBCConnector extends Connector implements ConnectorInterface, OdbcDriver
     {
         // ignore some default props...
         $ignoreProps = $this->dsnPrefix === 'snowflake' ?
-            ['driver', 'odbc_driver', 'dsn', 'options', 'port', 'server', 'username', 'password', 'name', 'prefix', 'private_key_path', 'private_key_passphrase'] :
+            ['driver', 'odbc_driver', 'dsn', 'options', 'port', 'server', 'username', 'password', 'name', 'prefix'] :
             ['driver', 'odbc_driver', 'dsn', 'options', 'username', 'password', 'name', 'prefix'];
         $props = Arr::except($config, $ignoreProps);
 
